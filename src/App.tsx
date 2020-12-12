@@ -1,4 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import create, { State, StateCreator } from "zustand";
+import produce from "immer";
+
+const immer = <T extends State>(
+  config: StateCreator<T, (fn: (draft: T) => void) => void>
+): StateCreator<T> => (set, get, api) =>
+  config((fn) => set(produce(fn) as (state: T) => T), get, api);
 
 type FilteredKeys<T, U> = {
   [K in keyof T]: T[K] extends U ? K : never;
@@ -60,9 +67,58 @@ const PointerEvent = <K extends PointerEvents>({
   return null;
 };
 
+type ToolName = "pencil";
+
+type Point = { x: number; y: number };
+
+type Path = {
+  points: Point[];
+  color: string;
+};
+
+const useStore = create<{
+  tool: ToolName;
+  paths: Path[];
+  currentPath: Path | null;
+  addPath: (path: Path) => void;
+  setState: (newState: Partial<{}>) => void;
+}>(
+  immer((set, get) => ({
+    tool: "pencil",
+    paths: [],
+    currentPath: null,
+    addPath: (path) => {
+      set((draft) => {
+        draft.paths.push(path);
+      });
+    },
+    setState: (newState) => {
+      set((draft: any) => {
+        Object.entries(newState).forEach(([k, v]) => {
+          draft[k] = v;
+        });
+      });
+    },
+  }))
+);
+
 const Canvas = () => {
   const ref = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [paths, setPaths] = useState<Path[]>([]);
+  const [currentPath, setCurrentPath] = useState<Path | null>(null);
+
+  const onPointerDown = (point: any) => {
+    let currentPath = {
+      type: "pencil",
+      color: "blue",
+      data: [point],
+    };
+  };
+
+  const onPointerMove = () => {};
+
+  const onPointerUp = () => {};
 
   return (
     <div
@@ -90,6 +146,8 @@ const Canvas = () => {
         target={ref}
         type="pointerdown"
         handler={({
+          clientX,
+          clientY,
           pressure,
           tangentialPressure,
           tiltX,
@@ -101,12 +159,18 @@ const Canvas = () => {
         }) => {
           setIsDrawing(true);
           ref.current?.setPointerCapture(pointerId);
+          setCurrentPath({
+            points: [{ x: clientX, y: clientY }],
+            color: "blue",
+          });
         }}
       />
       <PointerEvent
         target={ref}
         type="pointermove"
         handler={({
+          clientX,
+          clientY,
           pressure,
           tangentialPressure,
           tiltX,
@@ -116,32 +180,20 @@ const Canvas = () => {
           height,
           pointerId,
         }) => {
-          if (!isDrawing) {
+          if (!isDrawing || !currentPath) {
             return;
           }
 
-          console.log(
-            `{
-              pressure,
-              tangentialPressure,
-              tiltX,
-              tiltY,
-              twist,
-              width,
-              height,
-              pointerId,
-            }`,
-            {
-              pressure,
-              tangentialPressure,
-              tiltX,
-              tiltY,
-              twist,
-              width,
-              height,
-              pointerId,
-            }
-          );
+          setCurrentPath({
+            ...currentPath,
+            points: [
+              ...currentPath.points,
+              {
+                x: clientX,
+                y: clientY,
+              },
+            ],
+          });
         }}
       />
       <PointerEvent
@@ -149,6 +201,8 @@ const Canvas = () => {
         type={["pointerup"]}
         handler={() => {
           setIsDrawing(false);
+          setPaths([...paths, currentPath!]);
+          setCurrentPath(null);
         }}
       />
       <PointerEvent
@@ -166,6 +220,23 @@ const Canvas = () => {
           setIsDrawing(false);
         }}
       /> */}
+      <svg style={{ width: "100%", height: "100%" }}>
+        {(currentPath ? [...paths, currentPath] : paths).map(
+          ({ points, color }) => {
+            let [first, ...rest] = points;
+            return (
+              <path
+                fill="none"
+                stroke="blue"
+                strokeWidth={10}
+                d={`M ${first.x},${first.y} ${rest.map(
+                  ({ x, y }) => `L ${x},${y}`
+                )}`}
+              />
+            );
+          }
+        )}
+      </svg>
     </div>
   );
 };
